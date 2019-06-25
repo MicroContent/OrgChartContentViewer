@@ -2,142 +2,323 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>AbstractContentViewer</title>
+    <title>SimpleSortingViewer</title>
     <script type="application/javascript">
-        /** 
-            dont delete! 
-        **/
         function init() {
             window.data = getData();
             setXapiObjectGetter(getXapiObject);
             registerOnSubmitListener(onSubmit);
         }
-        /** 
-            dont delete! 
-        **/
         function updateLayout() {
             propagateLayoutChanges();
         }
-        /** 
-            dont delete! 
-        **/
         function sendStatement(stmt) {
             sendXapiStatement(stmt);
         }
     </script>
+    <style type ="text/css">
+       .dontDisplay {
+           display: none;
+       }
+       .result {
+           display: inline;
+       }
+       .result > div {
+           display: inline;
+       }
+       .correct {
+            color: green;
+            text-decoration: solid;
+            margin-left: 10px;
+       }
+       .false {
+            color: red;
+            text-decoration: line-through;
+            margin-left: 10px;
+       }
+       #description {
+            margin-bottom: 10px;
+       }
+       .black {
+           color: black;
+       }
 
-    <!-- EDIT css for custom styling 
-         
-        NOTE: you can use Material-css classes for styling 
-        Source: https://cdn.rawgit.com/FezVrasta/bootstrap-material-design/gh-pages-v3/bootstrap-elements.html
-    -->
-     <style type ="text/css">
-     </style>
-    <!-- EDIT css for custom styling -->
-
+    </style>
 </head>
-<body>    
-    <!-- EDIT html for card display 
-    
-    for example:
+<body>
     <div id="description"></div>
-    <div id="answers"></div>
-    <div id="contextContainer">
-        <button id="showContextHeader" class="btn btn-primary" onclick="showHideContext()"></button>
-        <p id="contextContentContainer"></p>
-    </div> 
-    -->
-    <h1 id="title"></h1>
-    <!-- EDIT html for card display  -->
+    <canvas id="canvas" width="600" height="600" style="width: 100%" ></canvas>
 
-    <!-- EDIT card logic -->
-    <script type="application/javascript">
-        /** 
-            function setContent() -> display content (write data from dataobject to DOM Elements)
 
-            for example:
-            document.getElementById('title').innerHTML = data.title;
-        **/
-        function setContent(){}
+    <!-- for testing only 
+    <h1>testingfunction</h1><div id="testingfunction"></div> -->
+    
+
+    <script type="application/javascript"> 
+      var canvasWidth = 600;
+      var canvasHeight = 600;
+      
+        function getXapiObject(){
+            return {};
+        }
         
-        /** 
-            function getXapiObject() used to build XAPI-Object
-            for syntax: https://github.com/adlnet/xAPI-Spec/blob/master/xAPI-Data.md
+        function initializeChartData(){
+          var getWidth = function(items){
+            var max = items.length + items.map(function(i){ return i.assist.length; }).reduce(function(a,b){return a+b;}, 0);
+            return Math.max(max, items.map(function(i){ return getWidth(i.subord); }).reduce(function(a,b){return a+b;}, 0));
+          };
+          var getDepth = function(items){
+            if (items.length === 0) { return 0 };
+            return 1 + items.map(function(i){ return getDepth(i.subord);}).reduce(function(a,b){ return Math.max(a,b);}, 0);
+          };
+          var getItems = function(items){
+            var allItems = [];
+            items.forEach(function(i){
+              allItems.push(i);
+              getItems(i.assist).forEach(function(a){
+                allItems.push(a);
+              });
+              getItems(i.subord).forEach(function(s){
+                allItems.push(s);
+              });
+            });
+            return allItems;
+          };
+          window.items = getItems(window.data.items);
+          window.orgWidth = getWidth(window.data.items);
+          window.orgDepth = getDepth(window.data.items);
+          window.hMargin = Math.round(canvasWidth/orgWidth/10);
+          window.rectWidth = hMargin*8;
+          var dragAreaRows = Math.ceil(items.length / orgWidth);
+          window.vMargin = Math.round(canvasHeight/(orgDepth+dragAreaRows)/6);
+          window.rectHeight = vMargin*4;
+        }
+        
+        function createChartRectangles(){
+          var rectangleCounter = [];
+          for (var i=0; i<window.orgDepth; i++){ rectangleCounter.push(0); };
+          var createAndGetRectangle = function(item, level, minPos, maxPos){
+            var childRects = [];
+            minPos = Math.max(hMargin+(hMargin+rectWidth)*rectangleCounter[level], minPos);
+            var hPos = minPos;
+            if (item.subord.length !== 0) {
+              childRects = item.subord.map(function(i){ return createAndGetRectangle(i, level+1, minPos, maxPos); });
+              hPos = childRects.map(function(r){ return r.x; }).reduce(function(a,b){ return a+b;}, 0) / item.subord.length;
+              childRects.forEach(function(cRect){
+                lines.push(
+                  {p: [
+                    {x: cRect.x+Math.round(rectWidth/2), y: vMargin+(vMargin+rectHeight)*(level+1)},
+                    {x: cRect.x+Math.round(rectWidth/2), y: Math.round(vMargin/2)+(vMargin+rectHeight)*(level+1)},
+                    {x: hPos+Math.round(rectWidth/2), y: Math.round(vMargin/2)+(vMargin+rectHeight)*(level+1)},
+                    {x: hPos+Math.round(rectWidth/2), y: (vMargin+rectHeight)*(level+1)}
+                  ]}
+                );
+              });
+            }
+            var assRects = [];
+            for(var i = 0; i<item.assist.length; i++){
+              var assRect;
+              if(hPos-minPos>hMargin+rectWidth){
+                assRect = createAndGetRectangle(item.assist[i], level, minPos, hPos - rectWidth - hMargin);
+                minPos = assRect.x + rectWidth + hMargin;
+                lines.push({p:[{x: hPos,y: vMargin+(vMargin+rectHeight)*level+Math.round(rectHeight/2)}, {x: assRect.x+rectWidth ,y: vMargin+(vMargin+rectHeight)*level+Math.round(rectHeight/2)}]})
+              } else {
+                assRect = createAndGetRectangle(item.assist[i], level, hPos + rectWidth + hMargin, maxPos);
+                minPos = assRect.x + rectWidth + hMargin;
+                lines.push({p:[{x: hPos+rectWidth, y: vMargin+(vMargin+rectHeight)*level+Math.round(rectHeight/2)}, {x: assRect.x, y: vMargin+(vMargin+rectHeight)*level+Math.round(rectHeight/2)}]})
+              }
+              assRects.push(assRect);
+            }
+            var rect = {x: hPos, y: vMargin+(vMargin+rectHeight)*level, width: rectWidth, height: rectHeight, text: item.name, subord: item.subord, assist: item.assist};
+            childRects.forEach(function(r){ r.subordTo = rect; });
+            assRects.forEach(function(r){ r.assistentTo = rect; });
+            rectangles.push(rect);
+            rectangleCounter[level]+=1;
+            return rect;
+          }
+          var minPos = 0;
+          for (var i = 0; i<window.data.items.length; i++){
+            minPos = createAndGetRectangle(window.data.items[i], 0, minPos, canvasWidth - rectWidth - hMargin).x + rectWidth + hMargin;
+          }
+        }
 
-            for example:
-            return {
-                "definition": {
-                    "description": {
-                        "en-US": window.data.description
-                    },
-                    "type": "http://adlnet.gov/expapi/activities/cmi.interaction",
-                    "interactionType": "fill-in",
-                    "correctResponsesPattern": 
-                        getAllCombinations(window.data.answers).map(function(e){ return e.join("[,]") }) 
-                    
+        function createDragSourceRectangles(){
+          var shuffle = function(a) {
+            var j, x, i;
+            for (i = a.length - 1; i > 0; i--) {
+                j = Math.floor(Math.random() * (i + 1));
+                x = a[i];
+                a[i] = a[j];
+                a[j] = x;
+            }
+            return a;
+          };
+          shuffle(window.items).forEach(function(item, i){
+            rectangles.push( {x: hMargin+(i%orgWidth)*(hMargin+rectWidth) , y: vMargin + (orgDepth+Math.floor(i/orgWidth))*(vMargin+rectHeight),
+              width: rectWidth, height: rectHeight, item: item } );
+          });
+        }
+
+        function draw() {
+          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+          for (var i = 0; i < lines.length; i++){
+            ctx.beginPath();
+            ctx.moveTo(lines[i].p[0].x, lines[i].p[0].y);
+            for (var j = 0; j < lines[i].p.length; j++){
+              ctx.lineTo(lines[i].p[j].x, lines[i].p[j].y);
+            }
+            ctx.stroke();
+          }
+          for (var i = 0; i < rectangles.length; i++){
+            if(rectangles[i].corr === true){
+              ctx.fillStyle = "rgba(0,255,0,0.4)";
+            } else if (rectangles[i].corr === false){
+              ctx.fillStyle = "rgba(255,0,0,0.4)";
+            } else {
+              ctx.fillStyle = "rgba(0,0,0,0)";
+            }
+            ctx.fillRect(rectangles[i].x, rectangles[i].y, rectangles[i].width, rectangles[i].height);
+            ctx.fillStyle = "#000000";
+            ctx.strokeRect(rectangles[i].x, rectangles[i].y, rectangles[i].width, rectangles[i].height);
+            if(rectangles[i].item !== undefined){
+              if(rectangles[i].font === undefined){
+                for(var j = 30; j > 0; j--){
+                  ctx.font = j+"px Arial";
+                  var tmw = Math.round(ctx.measureText(rectangles[i].item.name).width);
+                  if (tmw < rectangles[i].width){
+                    rectangles[i].font = j+"px Arial";
+                    break;
+                  }
+                }
+              }
+              ctx.font = rectangles[i].font;
+              ctx.textBaseline = "middle";
+              var tmw = Math.round(ctx.measureText(rectangles[i].item.name).width);
+              ctx.fillText(rectangles[i].item.name, Math.round(rectangles[i].x + (rectangles[i].width - tmw) / 2), Math.round(rectangles[i].y + rectangles[i].height / 2));
+            }
+          }
+        }
+        
+        function onMouseDown(event) {
+            if (!isShowingSolution) {
+                var outerRect = getBoundingClientRect();
+                var rect = canvas.getBoundingClientRect();
+                var x = (event.clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
+                var y = (event.clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+                var hits = rectangles.filter(function(rect){ return x > rect.x && x < rect.x + rect.width && y > rect.y && y < rect.y + rect.height && rect.item !== undefined });
+                if(hits.length>0){
+                  dragObject = hits[hits.length-1];
+                } else {
+                  dragObject = undefined;
                 }
             }
-        **/
-        function getXapiObject(){}
-
-        /** 
-            function onInteraction() -> should be called (event listener) everytime user klicks, writes, moves.. something 
-            must send statement on interaction! e.g.:
-            var stmt = {};
-                // actor is set by hosting application
-                stmt.actor = undefined;
-                stmt.verb = {
-                    "id": "http://adlnet.gov/expapi/verbs/interacted",
-                    "display": {
-                        "de-DE": "interagierte",
-                        "en-US": "interacted",
-                        "fr-FR": "a interagi",
-                        "es-ES": "interactuó"
-                    }
-                };
-                stmt.object = getXapiObject();
-                stmt.result = {
-                    response: getCurrentAnswers()
-                };
-                sendStatement(stmt);
-        **/
-        function onInteraction(){}
-
-        /** 
-            function onSubmit() -> is called when user klicks 'submit'-Button @card
-            has 2 states: display correct answer -> submit icon changes to "revert" -> revert to original state
-            
-            Must send Statement on submit! e.g.:
-            var stmt = {};
-                // actor is set by hosting application
-                stmt.actor = undefined;
-                stmt.verb = {
-                    "id": "http://adlnet.gov/expapi/verbs/answered",
-                    "display": {
-                        "de-DE": "beantwortete",
-                        "en-US": "answered",
-                        "fr-FR": "a répondu",
-                        "es-ES": "contestó"
-                    }
-                };
-                stmt.object = getXapiObject();
-                stmt.result = {
-                    response: getCurrentAnswers(),
-                    success: checkIfCurrentAnswersCorrect()
-                };
-                sendStatement(stmt);
-        **/
-        function onSubmit(){}
+            return false;
+            //draw();
+        }
+    
+        function onMouseMove(event){
+          if (!isShowingSolution && dragObject !== undefined) {
+            var outerRect = getBoundingClientRect();
+            var rect = canvas.getBoundingClientRect();
+            var x = (event.clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
+            var y = (event.clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+            dragObject.x = x;
+            dragObject.y = y;
+            draw();
+          }
+          return false;
+        }
         
-        /** 
-            function init() -> dont delete! used for initialization.
-        **/
+        function onMouseUp(event){
+          if (!isShowingSolution && dragObject !== undefined) {
+            var outerRect = getBoundingClientRect();
+            var rect = canvas.getBoundingClientRect();
+            var x = (event.clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
+            var y = (event.clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+            var hits = rectangles.filter(function(rect){ return x > rect.x && x < rect.x + rect.width && y > rect.y && y < rect.y + rect.height && rect.item === undefined });
+            if(hits.length===1){
+              rectangles.filter(function(rect){ return x > rect.x && x < rect.x + rect.width && y > rect.y && y < rect.y + rect.height && rect.item !== undefined && rect.item.name !== dragObject.name}).forEach(function(occupant){ occupant.x = occupant.origX; occupant.y = occupant.origY; });
+              
+              if(dragObject.origX === undefined && dragObject.origY === undefined){
+                dragObject.origX = dragObject.x;
+                dragObject.origY = dragObject.y;
+              }
+              dragObject.x = hits[0].x;
+              dragObject.y = hits[0].y;
+            } else if (dragObject.origX !== undefined && dragObject.origY !== undefined) {
+              dragObject.x = dragObject.origX;
+              dragObject.y = dragObject.origY;
+            }
+            draw();
+          }
+          return false;
+        }
+
+            
+        function onSubmit(){
+            var positions = rectangles.filter(function(r){ return r.item === undefined});
+            if (!isShowingSolution) {
+                isShowingSolution = true;
+                positions.forEach(function(p){
+                  p.assigned = rectangles.filter(function(r){ return r.x == p.x && r.y == p.y && r.item !== undefined});
+                });
+                var structureValue = function(item){
+                  return item.assist.length / (orgWidth)
+                    + item.subord.length / (orgWidth+1)
+                    + item.assist.map(structureValue).reduce(function(a,b){return a+b;}, 0) / (orgWidth)
+                    + item.subord.map(structureValue).reduce(function(a,b){return a+b;}, 0) / (orgWidth+1);
+                }
+                positions.forEach(function(p){
+                  if(p.assigned.length === 1 && p.subordTo !== undefined){
+                    p.corr = p.subordTo.subord.filter(function(sp){
+                      return sp.name === p.assigned[0].item.name;
+                    }).length === 1 && structureValue(p.assigned[0].item)===structureValue(p);
+                  } else if (p.assigned.length === 1 && p.assistentTo !== undefined){
+                    p.corr = p.assistentTo.assist.filter(function(ass){
+                      return ass.name === p.assigned[0].item.name;
+                    }).length === 1 && structureValue(p.assigned[0].item)===structureValue(p);
+                  } else if (p.assigned.length !== 1) {
+                    p.corr = false;
+                  } else {
+                    p.corr = window.data.items.filter(function(i){
+                      return i.name === p.assigned[0].item.name;
+                    }).length === 1 && structureValue(p.assigned[0].item)===structureValue(p);
+                  }
+                });
+            }
+            else {
+                isShowingSolution = false;
+                positions.forEach(function(p){ p.corr = undefined;});
+            }
+            draw();
+        }
+
+        function onInteraction(id){
+        }
+
+        function showHideContext(){
+        }
+
+
         init();
+        var canvas = document.getElementById('canvas');
+        var ctx = canvas.getContext("2d");
 
-        setContent();
-        updateLayout();
+        var showHint = false;
+        var isShowingSolution = false;
+        var dragObject = undefined;
+        initializeChartData();
+        var lines = [];
+        var rectangles = [];
+        createChartRectangles();
+        createDragSourceRectangles();
+        draw();
+        //canvas.addEventListener('click', onCanvasClicked);
+        canvas.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('onmousemove', onMouseMove);
+        canvas.addEventListener('click', onMouseUp);
+
     </script>
-    <!-- EDIT card logic -->
-
 </body>
+
 </html>
