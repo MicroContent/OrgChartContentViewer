@@ -210,14 +210,11 @@
       }
     }
 
-    var startObject = {};
-    var startClick = {};
     function onMouseDown(event) {
       if (!isShowingSolution) {
-        var outerRect = getBoundingClientRect();
-        var rect = canvas.getBoundingClientRect();
-        var x = (event.clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
-        var y = (event.clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+        var position = getPosition(event);
+        var x = position[0];
+        var y = position[1];
         var hits = rectangles.filter(function (rect) { return x > rect.x && x < rect.x + rect.width && y > rect.y && y < rect.y + rect.height && rect.item !== undefined });
         if (hits.length > 0) {
           dragObject = hits[hits.length - 1];
@@ -229,7 +226,8 @@
             dragObject.origX = dragObject.x;
             dragObject.origY = dragObject.y;
           }
-          canvas.addEventListener('mousemove', onMouseMove)
+          canvas.addEventListener('mousemove', onMouseMove);
+          canvas.addEventListener('touchmove', onMouseMove);
         } else {
           dragObject = undefined;
         }
@@ -239,24 +237,24 @@
 
     function onMouseMove(event) {
       if (!isShowingSolution && dragObject !== undefined) {
-        var outerRect = getBoundingClientRect();
-        var rect = canvas.getBoundingClientRect();
-        var x = (event.clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
-        var y = (event.clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+        var position = getPosition(event);
+        var x = position[0];
+        var y = position[1];
         dragObject.x = startObject.x - (startClick.x - x);
-        dragObject.y = startObject.y - (startClick.y -y);
+        dragObject.y = startObject.y - (startClick.y - y);
+        event.preventDefault();
         draw();
       }
       return false;
     }
 
     function onMouseUp(event) {
-      canvas.removeEventListener('mousemove', onMouseMove)
+      canvas.removeEventListener('mousemove', onMouseMove);
+      canvas.removeEventListener('touchmove', onMouseMove);
       if (!isShowingSolution && dragObject !== undefined) {
-        var outerRect = getBoundingClientRect();
-        var rect = canvas.getBoundingClientRect();
-        var x = (event.clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
-        var y = (event.clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+        var position = getPosition(event);
+        var x = position[0];
+        var y = position[1];
         var hits = rectangles.filter(function (rect) { return x > rect.x && x < rect.x + rect.width && y > rect.y && y < rect.y + rect.height && rect.item === undefined });
         if (hits.length === 1) {
           rectangles.filter(function (rect) { return x > rect.x && x < rect.x + rect.width && y > rect.y && y < rect.y + rect.height && rect.item !== undefined && rect.item.name !== dragObject.name }).forEach(function (occupant) { occupant.x = occupant.origX; occupant.y = occupant.origY; });
@@ -273,6 +271,21 @@
       return false;
     }
 
+    function getPosition(event) {
+      var outerRect = getBoundingClientRect();
+      var rect = canvas.getBoundingClientRect();
+      if (event.targetTouches !== undefined && event.targetTouches.length > 0) {
+        var x = (event.targetTouches[0].clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
+        var y = (event.targetTouches[0].clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+      } else if (event.changedTouches !== undefined && event.changedTouches.length > 0) {
+        var x = (event.changedTouches[0].clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
+        var y = (event.changedTouches[0].clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+      } else {
+        var x = (event.clientX - rect.left - outerRect.left) * (canvasWidth / (rect.right - rect.left));
+        var y = (event.clientY - rect.top - outerRect.top) * (canvasHeight / (rect.bottom - rect.top));
+      }
+      return [x, y];
+    }
 
     function onSubmit() {
       var positions = rectangles.filter(function (r) { return r.item === undefined });
@@ -289,11 +302,16 @@
         }
         positions.forEach(function (p) {
           if (p.assigned.length === 1 && p.subordTo !== undefined) {
-            p.corr = p.subordTo.subord.filter(function (sp) {
+            var sup = p.subordTo.assigned !== undefined && p.subordTo.assigned.length === 1 ?
+              p.subordTo.assigned[0].item : p.subordTo;
+            log(sup);
+            p.corr = sup.subord.filter(function (sp) {
               return sp.name === p.assigned[0].item.name;
             }).length === 1 && structureValue(p.assigned[0].item) === structureValue(p);
           } else if (p.assigned.length === 1 && p.assistentTo !== undefined) {
-            p.corr = p.assistentTo.assist.filter(function (ass) {
+            var supAss = p.assistentTo.assigned !== undefined && p.assistentTo.assigned.length === 1 ?
+              p.assistentTo.assigned[0].item : p.assistentTo;
+            p.corr = supAss.assist.filter(function (ass) {
               return ass.name === p.assigned[0].item.name;
             }).length === 1 && structureValue(p.assigned[0].item) === structureValue(p);
           } else if (p.assigned.length !== 1) {
@@ -334,6 +352,11 @@
     draw();
     canvas.addEventListener('mousedown', onMouseDown);
     canvas.addEventListener('click', onMouseUp);
+    canvas.addEventListener('touchstart', onMouseDown);
+    canvas.addEventListener('touchend', onMouseUp);
+
+    var startObject = {};
+    var startClick = {};
 
   </script>
 </body>
